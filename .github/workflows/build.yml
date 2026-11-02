@@ -21,7 +21,11 @@ jobs:
         uses: android-actions/setup-android@v3
         with:
           accept-android-sdk-licenses: true
-          packages: ''    # <--- THIS IS THE MAGIC FIX
+          packages: ''
+
+      # This step gives Linux permission to run the Gradle wrapper script
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
 
       - name: Build with Gradle
         run: ./gradlew assembleDebug
